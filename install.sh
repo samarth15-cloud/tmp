@@ -761,28 +761,52 @@ install_java() {
   CURRENT_STEP="install Java runtime"
   section "Java Runtime"
 
+  local req_java=21
+  if [[ "$SERVER_VERSION" =~ ^2[5-9] || "$SERVER_VERSION" == "latest" ]]; then
+    req_java=25
+  fi
+
   if command -v java >/dev/null 2>&1; then
     local current_ver
     current_ver="$(java -version 2>&1 | head -1 | grep -oE '"[0-9]+' | tr -d '"' || echo 0)"
-    if [[ "$current_ver" -ge 21 ]] 2>/dev/null; then
-      say_ok "Java ${current_ver} already installed"
+    if [[ "$current_ver" -ge "$req_java" ]] 2>/dev/null; then
+      say_ok "Java ${current_ver} already installed (requires >= ${req_java})"
       return
     fi
   fi
 
-  spinner_run "Installing OpenJDK 21" apt-get install -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold" \
-    openjdk-21-jre-headless
+  if [[ "$req_java" -eq 25 ]]; then
+    say_info "Minecraft version requires Java 25+."
+    # Try installing openjdk-25-jre-headless or openjdk-25-jdk from standard repo
+    if ! spinner_run "Installing OpenJDK 25" apt-get install -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      openjdk-25-jre-headless openjdk-25-jdk 2>/dev/null; then
+      
+      say_info "Adding openjdk-r PPA for Java 25..."
+      add-apt-repository -y ppa:openjdk-r/ppa >/dev/null 2>&1 || true
+      apt-get update -y >/dev/null 2>&1 || true
+      
+      spinner_run "Installing OpenJDK 25 from PPA" apt-get install -y \
+        -o Dpkg::Options::="--force-confdef" \
+        -o Dpkg::Options::="--force-confold" \
+        openjdk-25-jre-headless
+    fi
+  else
+    spinner_run "Installing OpenJDK 21" apt-get install -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      openjdk-21-jre-headless
+  fi
 
   if ! command -v java >/dev/null 2>&1; then
     say_fail "Java installation failed verification."
     exit 1
   fi
 
-  local jv
-  jv="$(java -version 2>&1 | head -1)"
-  say_ok "Java installed: ${jv}"
+  local final_ver
+  final_ver="$(java -version 2>&1 | head -1 | grep -oE '"[0-9]+' | tr -d '"' || echo 0)"
+  say_ok "Java ${final_ver} ready (requires >= ${req_java})"
 }
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -893,7 +917,7 @@ download_paper_family() {
         # We grab the first sub-version of the first major group (newest).
         resolved_version="$(
           fetch_json "${fill_base}" \
-          | jq -r '[.versions | to_entries[] | .value[]] | map(select(test("^1\\.[0-9]+(\\.[0-9]+)*$"))) | first'
+          | jq -r '[.versions | to_entries[] | .value[]] | map(select(test("^[0-9]+(\\.[0-9]+)*$"))) | first'
         )"
         if [[ -z "$resolved_version" || "$resolved_version" == "null" ]]; then
           say_fail "Could not resolve latest version for ${project} from Fill API."
@@ -936,7 +960,7 @@ download_paper_family() {
       # Purpur's own API v2 is still live and working.
       local purpur_base="https://api.purpurmc.org/v2/purpur"
       if [[ "$resolved_version" == "latest" ]]; then
-        resolved_version="$(fetch_json "${purpur_base}" | jq -r '.versions[] | select(test("^1\\.[0-9]+(\\.[0-9]+)*$"))' | tail -1)"
+        resolved_version="$(fetch_json "${purpur_base}" | jq -r '.versions[-1]')"
       fi
       local latest_build
       latest_build="$(fetch_json "${purpur_base}/${resolved_version}" | jq -r '.builds.latest')"
