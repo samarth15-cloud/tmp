@@ -893,7 +893,7 @@ download_paper_family() {
         # We grab the first sub-version of the first major group (newest).
         resolved_version="$(
           fetch_json "${fill_base}" \
-          | jq -r '[.versions | to_entries[] | .value[]] | map(select(test("^[0-9]+(\\.[0-9]+)*$"))) | first'
+          | jq -r '[.versions | to_entries[] | .value[]] | map(select(test("^1\\.[0-9]+(\\.[0-9]+)*$"))) | first'
         )"
         if [[ -z "$resolved_version" || "$resolved_version" == "null" ]]; then
           say_fail "Could not resolve latest version for ${project} from Fill API."
@@ -936,7 +936,7 @@ download_paper_family() {
       # Purpur's own API v2 is still live and working.
       local purpur_base="https://api.purpurmc.org/v2/purpur"
       if [[ "$resolved_version" == "latest" ]]; then
-        resolved_version="$(fetch_json "${purpur_base}" | jq -r '.versions[-1]')"
+        resolved_version="$(fetch_json "${purpur_base}" | jq -r '.versions[] | select(test("^1\\.[0-9]+(\\.[0-9]+)*$"))' | tail -1)"
       fi
       local latest_build
       latest_build="$(fetch_json "${purpur_base}/${resolved_version}" | jq -r '.builds.latest')"
