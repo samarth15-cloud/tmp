@@ -157,6 +157,10 @@ spinner_run() {
     printf '\r  %s%s%s %s%-20s%s\n' "$C_RED" "$GLYPH_FAIL" "$C_RESET" "$msg" "" "$C_RESET"
     log_line "FAIL: $msg (exit $rc) — see $logf"
     cat "$logf" >> "$LOG_FILE"
+    echo "  ${C_RED}Error output from the failed command:${C_RESET}"
+    echo "  --------------------------------------------------"
+    cat "$logf" | sed 's/^/  /'
+    echo "  --------------------------------------------------"
     return $rc
   fi
 }
