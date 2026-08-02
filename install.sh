@@ -376,7 +376,7 @@ confirm() {
     return 0
   fi
   local ans
-  read -r -p "  ${C_WHITE}${prompt}${C_RESET} [y/N]: " ans || true
+  read -r -p "  ${C_WHITE}${prompt}${C_RESET} [y/N]: " ans < /dev/tty || true
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
@@ -387,7 +387,7 @@ ask() {
     echo "$default"
     return
   fi
-  read -r -p "  ${C_WHITE}${prompt}${C_RESET} [${C_GRAY}${default}${C_RESET}]: " ans || true
+  read -r -p "  ${C_WHITE}${prompt}${C_RESET} [${C_GRAY}${default}${C_RESET}]: " ans < /dev/tty || true
   echo "${ans:-$default}"
 }
 
@@ -406,7 +406,7 @@ ask_choice() {
     ((i++))
   done
   local ans
-  read -r -p "  Choice [${C_GRAY}${default}${C_RESET}]: " ans || true
+  read -r -p "  Choice [${C_GRAY}${default}${C_RESET}]: " ans < /dev/tty || true
   ans="${ans:-$default}"
   echo "$ans"
 }
@@ -526,7 +526,7 @@ ask_for_ssh_link() {
     say_info "Example: ssh UUuMnyapjnMFFUFrwF8PxL9d7@lon1.tmate.io"
     say_info "Backticks and extra formatting are fine — they'll be stripped automatically."
     local input
-    read -r -p "  ${C_WHITE}SSH link:${C_RESET} " input || true
+    read -r -p "  ${C_WHITE}SSH link:${C_RESET} " input < /dev/tty || true
     if parse_ssh_link "$input"; then
       say_ok "Parsed target: ${REMOTE_USER}@${REMOTE_HOST} (port ${REMOTE_PORT})"
       return 0
@@ -551,22 +551,35 @@ termux_install_prereqs() {
   # that `yes` piping can't navigate.
   export DEBIAN_FRONTEND=noninteractive
 
-  say_step "Updating Termux package index"
-  say_info "(this may take a minute on first run)"
-  apt-get update -y 2>&1 | tee -a "$LOG_FILE" || true
+  # Only run update/upgrade if needed — skip if openssh + curl are already present.
+  local needs_install=0
+  for cmd in ssh curl wget git; do
+    if ! command -v "$cmd" > /dev/null 2>&1; then
+      needs_install=1
+      break
+    fi
+  done
 
-  say_step "Upgrading installed packages"
-  apt-get upgrade -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold" \
-    2>&1 | tee -a "$LOG_FILE" || true
+  if [[ "$needs_install" -eq 1 ]]; then
+    say_step "Updating Termux package index"
+    say_info "(this may take a minute on first run)"
+    apt-get update -y 2>&1 | tee -a "$LOG_FILE" || true
 
-  say_step "Installing SSH client and tools"
-  apt-get install -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold" \
-    openssh curl wget git 2>&1 | tee -a "$LOG_FILE"
-  say_ok "openssh installed in Termux"
+    say_step "Upgrading installed packages"
+    apt-get upgrade -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      2>&1 | tee -a "$LOG_FILE" || true
+
+    say_step "Installing SSH client and tools"
+    apt-get install -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      openssh curl wget git 2>&1 | tee -a "$LOG_FILE"
+    say_ok "openssh installed in Termux"
+  else
+    say_ok "SSH client and tools already installed — skipping"
+  fi
 
   if confirm "Install a nicer-looking terminal (zsh + Starship prompt) in Termux too?"; then
     termux_install_shell_experience
@@ -636,13 +649,26 @@ termux_launcher_flow() {
   fi
 
   section "Connecting to VPS"
-  say_step "Opening SSH session to ${REMOTE_USER}@${REMOTE_HOST}"
+  say_step "Transferring installer to ${REMOTE_USER}@${REMOTE_HOST}"
   say_info "If this is the first connection, you may be asked to confirm the host key — type 'yes'."
   echo
 
   local ssh_opts=(-p "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
 
-  if ! ssh "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash -s" < "$script_file"; then
+  # SCP the script to the VPS first, then SSH in interactively to run it.
+  # We can NOT use `ssh ... 'bash -s' < file` because that feeds the script
+  # via stdin, which breaks all `read` prompts on the VPS side too.
+  local remote_script="/tmp/mc-installer-$$.sh"
+
+  if ! scp "${ssh_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}"; then
+    say_fail "Could not transfer the installer script to the VPS."
+    exit 1
+  fi
+  say_ok "Installer transferred to VPS"
+
+  say_step "Running installer on VPS (interactive session)"
+  # -t forces a PTY so the remote script can prompt the user interactively.
+  if ! ssh -t "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash '${remote_script}' && rm -f '${remote_script}'"; then
     say_fail "Remote session ended with an error, or the connection dropped."
     say_info "You can retry by running this installer again."
     exit 1
@@ -1458,7 +1484,7 @@ install_playit() {
   fi
 
   if [[ "$UNATTENDED" -eq 0 ]]; then
-    read -r -p "  Press Enter once you've approved the agent in your browser (or skip)... " || true
+    read -r -p "  Press Enter once you've approved the agent in your browser (or skip)... " < /dev/tty || true
   fi
 
   say_ok "Playit.gg agent installed and running as a systemd service"
