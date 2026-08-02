@@ -653,30 +653,32 @@ termux_launcher_flow() {
   fi
 
   section "Connecting to VPS"
-  say_step "Transferring installer to ${REMOTE_USER}@${REMOTE_HOST}"
-  say_info "If this is the first connection, you may be asked to confirm the host key — type 'yes'."
+  say_step "Opening connection to ${REMOTE_USER}@${REMOTE_HOST}"
   echo
 
-  # ssh uses -p for port; scp uses -P (capital) for port. Build both.
-  local ssh_opts=(-p "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
-  local scp_opts=(-P "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
+  # Use StrictHostKeyChecking=no and UserKnownHostsFile=/dev/null so the user
+  # is never prompted to type 'yes' to confirm the host key.
+  local ssh_opts=(
+    -p "$REMOTE_PORT"
+    -o StrictHostKeyChecking=no
+    -o UserKnownHostsFile=/dev/null
+    -o LogLevel=ERROR
+  )
 
-  # SCP the script to the VPS first, then SSH in interactively to run it.
-  # We redirect stdin (< /dev/tty) for both commands because when this script
-  # is run via `curl | bash`, stdin is the download pipe. If we don't redirect
-  # stdin, scp/ssh will consume the remainder of the script from the pipe
-  # and feed it to the remote VPS as keyboard input, causing chaos.
-  local remote_script="/tmp/mc-installer-$$.sh"
-
-  if ! scp "${scp_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}" < /dev/tty; then
-    say_fail "Could not transfer the installer script to the VPS."
-    exit 1
-  fi
-  say_ok "Installer transferred to VPS"
-
-  say_step "Running installer on VPS (interactive session)"
-  # -t forces a PTY so the remote script can prompt the user interactively.
-  if ! ssh -t "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash '${remote_script}' && rm -f '${remote_script}'" < /dev/tty; then
+  # Because the remote target is a tmate sharing session, we cannot use SCP
+  # (tmate does not support file transfer, and trying to scp will dump binary
+  # protocol data directly into the active tmux terminal, causing massive keyboard loops
+  # and spamming 'y' / other keys).
+  #
+  # Instead, we force PTY allocation with -tt and pipe a tiny one-line loader
+  # that tells the VPS to download and run the script directly from GitHub,
+  # followed by `cat < /dev/tty` to pipe the user's terminal keyboard input
+  # so they can interact with the script prompts.
+  if ! {
+    sleep 2
+    echo "curl -fsSL ${INSTALLER_SCRIPT_URL} | bash"
+    cat < /dev/tty
+  } | ssh -tt "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}"; then
     say_fail "Remote session ended with an error, or the connection dropped."
     say_info "You can retry by running this installer again."
     exit 1
