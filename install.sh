@@ -694,7 +694,9 @@ install_packages() {
   export DEBIAN_FRONTEND=noninteractive
 
   spinner_run "Updating package index" apt-get update -y
-  spinner_run "Upgrading existing packages" apt-get upgrade -y
+  spinner_run "Upgrading existing packages" apt-get upgrade -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold"
 
   local pkgs=(
     curl wget screen tmux git unzip tar jq ca-certificates openssl gnupg
@@ -702,7 +704,10 @@ install_packages() {
     apt-transport-https lsb-release cron
   )
 
-  spinner_run "Installing core utilities" apt-get install -y "${pkgs[@]}"
+  spinner_run "Installing core utilities" apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    "${pkgs[@]}"
 
   install_java
 }
@@ -720,7 +725,10 @@ install_java() {
     fi
   fi
 
-  spinner_run "Installing OpenJDK 21" apt-get install -y openjdk-21-jre-headless
+  spinner_run "Installing OpenJDK 21" apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    openjdk-21-jre-headless
 
   if ! command -v java >/dev/null 2>&1; then
     say_fail "Java installation failed verification."
@@ -1351,7 +1359,10 @@ install_shell_experience() {
     return
   fi
 
-  spinner_run "Installing zsh" apt-get install -y zsh
+  spinner_run "Installing zsh" apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    zsh
 
   if ! command -v starship >/dev/null 2>&1; then
     spinner_run "Installing Starship prompt" bash -c 'curl -fsSL https://starship.rs/install.sh | sh -s -- -y'
@@ -1443,7 +1454,10 @@ install_playit() {
     apt-get update -y
   '
 
-  spinner_run "Installing playit package" apt-get install -y playit
+  spinner_run "Installing playit package" apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    playit
 
   systemctl enable playit >/dev/null 2>&1 || true
   systemctl restart playit >/dev/null 2>&1 || systemctl start playit >/dev/null 2>&1 || true
