@@ -219,8 +219,15 @@ acquire_lock() {
     local lock_pid
     lock_pid="$(cat "$LOCK_FILE" 2>/dev/null || echo '')"
     if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
-      say_fail "Another instance of this installer is already running (PID ${lock_pid})."
-      exit 1
+      say_warn "Another instance of this installer is already running (PID ${lock_pid})."
+      if confirm "Force stop the old instance and continue?"; then
+        say_info "Terminating PID ${lock_pid}..."
+        kill -9 "$lock_pid" 2>/dev/null || true
+        rm -f "$LOCK_FILE" 2>/dev/null || true
+      else
+        say_fail "Aborted. Another instance of this installer is running."
+        exit 1
+      fi
     fi
   fi
   echo $$ > "$LOCK_FILE"
