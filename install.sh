@@ -144,7 +144,7 @@ spinner_run() {
   if [[ -t 1 ]]; then
     while kill -0 "$pid" 2>/dev/null; do
       i=$(( (i+1) % ${#frames} ))
-      printf '\r  %swaiting...%s (%ds)' "$C_GRAY" "$C_RESET" "$waited"
+      printf '\r  %s%s%s %s' "$C_CYAN" "${frames:$i:1}" "$C_RESET" "$msg"
       sleep 0.1
     done
   fi
