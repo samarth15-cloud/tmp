@@ -1513,7 +1513,7 @@ install_playit() {
 
   if [[ "${INSTALL_PLAYIT_SKIP_PACKAGE:-0}" -eq 0 ]]; then
     spinner_run "Adding Playit.gg apt repository" bash -c '
-      curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/playit.gpg
+      curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --batch --yes --dearmor -o /etc/apt/trusted.gpg.d/playit.gpg
       echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" > /etc/apt/sources.list.d/playit-cloud.list
       apt-get update -y
     '
