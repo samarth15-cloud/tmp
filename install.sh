@@ -411,10 +411,10 @@ ask_choice() {
     echo "$default"
     return
   fi
-  echo "  ${C_WHITE}${prompt}${C_RESET}"
+  echo "  ${C_WHITE}${prompt}${C_RESET}" >&2
   local i=1
   for o in "${opts[@]}"; do
-    printf '    %s%d)%s %s\n' "$C_CYAN" "$i" "$C_RESET" "$o"
+    printf '    %s%d)%s %s\n' "$C_CYAN" "$i" "$C_RESET" "$o" >&2
     ((i++))
   done
   local ans
