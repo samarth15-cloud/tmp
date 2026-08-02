@@ -1553,7 +1553,19 @@ install_playit() {
   local max_wait=180
   say_step "Waiting for claim URL from the playit agent..."
   while (( waited < max_wait )); do
+    # 1. Check journalctl
     claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
+    
+    # 2. Check systemctl status status lines as a fallback (some containers disable journald)
+    if [[ -z "$claim_line" ]]; then
+      claim_line="$(systemctl status playit --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
+    fi
+
+    # 3. Check syslog as a fallback
+    if [[ -z "$claim_line" ]]; then
+      claim_line="$(grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' /var/log/syslog 2>/dev/null | tail -1 || true)"
+    fi
+
     if [[ -n "$claim_line" ]]; then
       break
     fi
