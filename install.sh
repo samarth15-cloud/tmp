@@ -15,6 +15,9 @@ readonly MC_ROOT="/opt/minecraft"
 readonly MC_USER="minecraft"
 readonly MC_GROUP="minecraft"
 readonly SERVICE_NAME="minecraft"
+readonly INSTALLER_UA="BulkNodes-MC-Installer/${SCRIPT_VERSION} (https://bulknodes.com)"
+# UPDATE THIS URL to point to wherever you host the script on GitHub:
+readonly INSTALLER_SCRIPT_URL="https://raw.githubusercontent.com/samarth15-cloud/tmp/main/install.sh"
 
 # These will be set based on environment (Termux vs VPS)
 LOG_DIR=""
@@ -241,13 +244,15 @@ retry() {
 fetch_url() {
   # fetch_url <url> <output_path>
   local url="$1" out="$2"
-  retry 4 3 curl -fsSL --retry 3 --retry-delay 2 -o "$out" "$url"
+  retry 4 3 curl -fsSL --retry 3 --retry-delay 2 \
+    -H "User-Agent: ${INSTALLER_UA}" -o "$out" "$url"
 }
 
 fetch_json() {
   # fetch_json <url>  -> prints body to stdout
   local url="$1"
-  retry 4 3 curl -fsSL --retry 3 --retry-delay 2 "$url"
+  retry 4 3 curl -fsSL --retry 3 --retry-delay 2 \
+    -H "User-Agent: ${INSTALLER_UA}" "$url"
 }
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -346,7 +351,7 @@ detect_resources() {
 
 check_internet() {
   CURRENT_STEP="verify internet connectivity"
-  if ! curl -fsSL --max-time 8 -o /dev/null https://api.papermc.io 2>/dev/null; then
+  if ! curl -fsSL --max-time 8 -o /dev/null https://fill.papermc.io 2>/dev/null; then
     if ! curl -fsSL --max-time 8 -o /dev/null https://1.1.1.1 2>/dev/null; then
       say_fail "No internet connectivity detected. This installer requires internet access."
       exit 1
@@ -540,12 +545,27 @@ ask_for_ssh_link() {
 
 termux_install_prereqs() {
   section "Termux Setup"
-  say_step "Updating Termux packages"
-  yes | pkg update -y >>"$LOG_FILE" 2>&1 || true
-  yes | pkg upgrade -y >>"$LOG_FILE" 2>&1 || true
+
+  # Suppress ALL interactive prompts from dpkg/apt.
+  # Without this, `pkg upgrade` hangs on the ncurses config-file dialog
+  # that `yes` piping can't navigate.
+  export DEBIAN_FRONTEND=noninteractive
+
+  say_step "Updating Termux package index"
+  say_info "(this may take a minute on first run)"
+  apt-get update -y 2>&1 | tee -a "$LOG_FILE" || true
+
+  say_step "Upgrading installed packages"
+  apt-get upgrade -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    2>&1 | tee -a "$LOG_FILE" || true
 
   say_step "Installing SSH client and tools"
-  pkg install -y openssh curl wget git >>"$LOG_FILE" 2>&1
+  apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    openssh curl wget git 2>&1 | tee -a "$LOG_FILE"
   say_ok "openssh installed in Termux"
 
   if confirm "Install a nicer-looking terminal (zsh + Starship prompt) in Termux too?"; then
@@ -555,7 +575,10 @@ termux_install_prereqs() {
 
 termux_install_shell_experience() {
   say_step "Installing zsh and Starship for Termux"
-  pkg install -y zsh >>"$LOG_FILE" 2>&1
+  apt-get install -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    zsh 2>&1 | tee -a "$LOG_FILE"
 
   if ! command -v starship >/dev/null 2>&1; then
     curl -fsSL https://starship.rs/install.sh | sh -s -- -y >>"$LOG_FILE" 2>&1 || \
@@ -589,18 +612,37 @@ termux_launcher_flow() {
     ask_for_ssh_link
   fi
 
+  # We need a local copy of this script to pipe over SSH.
+  # When run via `curl | bash`, $0 is "bash" — not a file we can read.
+  local self_script="$0"
+  local script_file=""
+
+  if [[ -f "$self_script" && -r "$self_script" ]]; then
+    # Script was run as `bash install.sh` — file exists on disk.
+    script_file="$self_script"
+  else
+    # Script was piped in via `curl | bash` — no file on disk.
+    # Download a fresh copy to a temp file so we can pipe it to the VPS.
+    say_step "Downloading installer script for VPS transfer"
+    script_file="${TMP_ROOT}/install.sh"
+    if ! curl -fsSL -H "User-Agent: ${INSTALLER_UA}" \
+         -o "$script_file" "${INSTALLER_SCRIPT_URL}"; then
+      say_fail "Could not download the installer script for VPS transfer."
+      say_info "Try running: curl -fsSL ${INSTALLER_SCRIPT_URL} -o install.sh && bash install.sh"
+      exit 1
+    fi
+    chmod +x "$script_file"
+    say_ok "Installer script cached for transfer"
+  fi
+
   section "Connecting to VPS"
   say_step "Opening SSH session to ${REMOTE_USER}@${REMOTE_HOST}"
   say_info "If this is the first connection, you may be asked to confirm the host key — type 'yes'."
   echo
 
-  # Re-run this exact script on the remote VPS by piping it over the SSH
-  # session's stdin, exactly like the original curl | bash entrypoint,
-  # so the remote side lands in TARGET MODE automatically.
-  local self_script="$0"
   local ssh_opts=(-p "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
 
-  if ! ssh "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash -s" < "$self_script"; then
+  if ! ssh "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash -s" < "$script_file"; then
     say_fail "Remote session ended with an error, or the connection dropped."
     say_info "You can retry by running this installer again."
     exit 1
@@ -740,36 +782,80 @@ select_server_version() {
 }
 
 download_paper_family() {
-  # Handles paper, purpur, velocity, waterfall via their respective APIs
+  # Handles paper, purpur, velocity, waterfall via their respective APIs.
+  #
+  # Paper/Velocity/Waterfall use the Fill v3 API (fill.papermc.io/v3).
+  #   - api.papermc.io/v2 is SUNSET and no longer available.
+  #   - All requests require a non-generic User-Agent header.
+  #   - Versions are grouped by major version in the project response.
+  #   - Builds endpoint returns a flat array; filter by channel=STABLE.
+  #   - Download URL lives at .downloads."server:default".url
+  #   - Actual file is served from fill-data.papermc.io
+  #
+  # Purpur uses its own v2 API (api.purpurmc.org/v2) which is still live.
+  #
   local project="$1"
-  local api_base
   local jar_url=""
   local resolved_version="$SERVER_VERSION"
 
   case "$project" in
     paper|velocity|waterfall)
-      api_base="https://api.papermc.io/v2/projects/${project}"
+      local fill_base="https://fill.papermc.io/v3/projects/${project}"
+
       if [[ "$resolved_version" == "latest" ]]; then
-        resolved_version="$(fetch_json "${api_base}" | jq -r '.versions[-1]')"
+        # The Fill v3 /projects/<project> response groups versions by major.
+        # Structure: { "versions": { "26.2": ["26.2", ...], "1.21": ["1.21.11", ...], ... } }
+        # We grab the first sub-version of the first major group (newest).
+        resolved_version="$(
+          fetch_json "${fill_base}" \
+          | jq -r '[.versions | to_entries[] | .value[]] | map(select(test("^[0-9]+(\\.[0-9]+)*$"))) | first'
+        )"
+        if [[ -z "$resolved_version" || "$resolved_version" == "null" ]]; then
+          say_fail "Could not resolve latest version for ${project} from Fill API."
+          exit 1
+        fi
       fi
-      local build
-      build="$(fetch_json "${api_base}/versions/${resolved_version}" | jq -r '.builds[-1]')"
-      if [[ "$build" == "null" || -z "$build" ]]; then
-        say_fail "Could not resolve a build for ${project} ${resolved_version}."
+
+      # Get builds for this version, pick the latest STABLE one.
+      # Builds endpoint returns a flat JSON array of build objects.
+      local builds_json
+      builds_json="$(fetch_json "${fill_base}/versions/${resolved_version}/builds")"
+
+      local jar_url_resolved
+      jar_url_resolved="$(
+        echo "$builds_json" \
+        | jq -r '[
+            .[] | select(.channel == "STABLE")
+          ] | if length > 0 then .[-1] else empty end
+            | .downloads."server:default".url'
+      )"
+
+      # Fallback: if no STABLE build, take the latest of any channel
+      if [[ -z "$jar_url_resolved" || "$jar_url_resolved" == "null" ]]; then
+        jar_url_resolved="$(
+          echo "$builds_json" \
+          | jq -r '.[-1].downloads."server:default".url'
+        )"
+      fi
+
+      if [[ -z "$jar_url_resolved" || "$jar_url_resolved" == "null" ]]; then
+        say_fail "Could not resolve a download URL for ${project} ${resolved_version}."
+        say_fail "The Fill API returned no builds with a 'server:default' download."
         exit 1
       fi
-      local jar_name
-      jar_name="$(fetch_json "${api_base}/versions/${resolved_version}/builds/${build}" | jq -r '.downloads.application.name')"
-      jar_url="${api_base}/versions/${resolved_version}/builds/${build}/downloads/${jar_name}"
+
+      jar_url="$jar_url_resolved"
       ;;
+
     purpur)
-      api_base="https://api.purpurmc.org/v2/purpur"
+      # Purpur's own API v2 is still live and working.
+      local purpur_base="https://api.purpurmc.org/v2/purpur"
       if [[ "$resolved_version" == "latest" ]]; then
-        resolved_version="$(fetch_json "${api_base}" | jq -r '.versions[-1]')"
+        resolved_version="$(fetch_json "${purpur_base}" | jq -r '.versions[-1]')"
       fi
       local latest_build
-      latest_build="$(fetch_json "${api_base}/${resolved_version}" | jq -r '.builds.latest')"
-      jar_url="${api_base}/${resolved_version}/${latest_build}/download"
+      latest_build="$(fetch_json "${purpur_base}/${resolved_version}" | jq -r '.builds.latest')"
+      jar_url="${purpur_base}/${resolved_version}/${latest_build}/download"
       ;;
   esac
 
