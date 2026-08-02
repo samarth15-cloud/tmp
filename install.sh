@@ -1404,6 +1404,11 @@ install_shell_experience() {
     return
   fi
 
+  local target_user="${SUDO_USER:-root}"
+  local target_home
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+  target_home="${target_home:-/root}"
+
   spinner_run "Installing zsh" apt-get install -y \
     -o Dpkg::Options::="--force-confdef" \
     -o Dpkg::Options::="--force-confold" \
@@ -1420,11 +1425,6 @@ install_shell_experience() {
   spinner_run "Installing zsh-syntax-highlighting" git clone --depth=1 \
     https://github.com/zsh-users/zsh-syntax-highlighting \
     "${target_home}/.zsh-syntax-highlighting" 2>/dev/null || true
-
-  local target_user="${SUDO_USER:-root}"
-  local target_home
-  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
-  target_home="${target_home:-/root}"
 
   local zshrc="${target_home}/.zshrc"
   touch "$zshrc"
