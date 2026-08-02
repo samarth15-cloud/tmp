@@ -690,6 +690,12 @@ termux_launcher_flow() {
 
   if ! {
     sleep 2
+    # Auto-bypass the tmate welcome/sharing screen:
+    # If the screen is active, 'q' closes it.
+    # If not active, 'q' is typed into the shell, but the Ctrl+C (\x03)
+    # immediately cancels it to leave a clean prompt for the loader.
+    printf 'q\x03'
+    sleep 1
     echo "curl -fsSL ${INSTALLER_SCRIPT_URL} | bash"
     cat < /dev/tty
   } | ssh -tt "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}"; then
