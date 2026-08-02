@@ -662,11 +662,13 @@ termux_launcher_flow() {
   local scp_opts=(-P "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
 
   # SCP the script to the VPS first, then SSH in interactively to run it.
-  # We can NOT use `ssh ... 'bash -s' < file` because that feeds the script
-  # via stdin, which breaks all `read` prompts on the VPS side too.
+  # We redirect stdin (< /dev/tty) for both commands because when this script
+  # is run via `curl | bash`, stdin is the download pipe. If we don't redirect
+  # stdin, scp/ssh will consume the remainder of the script from the pipe
+  # and feed it to the remote VPS as keyboard input, causing chaos.
   local remote_script="/tmp/mc-installer-$$.sh"
 
-  if ! scp "${scp_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}"; then
+  if ! scp "${scp_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}" < /dev/tty; then
     say_fail "Could not transfer the installer script to the VPS."
     exit 1
   fi
@@ -674,7 +676,7 @@ termux_launcher_flow() {
 
   say_step "Running installer on VPS (interactive session)"
   # -t forces a PTY so the remote script can prompt the user interactively.
-  if ! ssh -t "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash '${remote_script}' && rm -f '${remote_script}'"; then
+  if ! ssh -t "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "bash '${remote_script}' && rm -f '${remote_script}'" < /dev/tty; then
     say_fail "Remote session ended with an error, or the connection dropped."
     say_info "You can retry by running this installer again."
     exit 1
