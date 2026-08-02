@@ -1483,7 +1483,9 @@ install_playit() {
     if [[ -f /etc/playit/playit.toml ]]; then
       if confirm "Playit.gg configuration already exists. Reset it to link a new account?"; then
         say_info "Resetting Playit.gg configuration..."
-        rm -f /etc/playit/playit.toml 2>/dev/null || true
+        # Truncate the file to preserve original file ownership/permissions (prevents systemd service crashes)
+        echo -n "" > /etc/playit/playit.toml
+        chown -R playit:playit /etc/playit 2>/dev/null || true
       elif grep -qE 'secret_key[[:space:]]*=[[:space:]]*"[a-zA-Z0-9_-]+"' /etc/playit/playit.toml 2>/dev/null; then
         say_ok "Playit.gg is already active and linked to your account."
         PLAYIT_INSTALLED=1
@@ -1529,6 +1531,9 @@ install_playit() {
       playit
   fi
 
+  # Kill any manual background playit processes to prevent resource locks
+  killall -9 playit 2>/dev/null || true
+
   systemctl enable playit >/dev/null 2>&1 || true
   systemctl restart playit >/dev/null 2>&1 || systemctl start playit >/dev/null 2>&1 || true
 
@@ -1538,7 +1543,10 @@ install_playit() {
   say_step "Waiting for claim URL from the playit agent..."
   while (( waited < max_wait )); do
     # 1. Check journalctl
-    claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https?://(www\.)?playit\.gg/(claim|link)/[A-Za-z0-9_-]+' | tail -1 || true)"
+    claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
+    if [[ -z "$claim_line" ]]; then
+      claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https?://(www\.)?playit\.gg/(claim|link)/[A-Za-z0-9_-]+' | tail -1 || true)"
+    fi
     
     # 2. Check systemctl status status lines as a fallback (some containers disable journald)
     if [[ -z "$claim_line" ]]; then
@@ -1567,7 +1575,11 @@ install_playit() {
     echo
   else
     say_warn "Could not automatically detect the claim URL within ${max_wait}s."
-    say_warn "Run 'sudo journalctl -u playit -f' manually to find it, or run 'sudo playit setup'."
+    say_warn "Here are the last 20 lines of the playit service logs for troubleshooting:"
+    echo "----------------------------------------------------------------------"
+    journalctl -u playit -n 20 --no-pager 2>/dev/null || systemctl status playit --no-pager 2>/dev/null || true
+    echo "----------------------------------------------------------------------"
+    say_warn "You can run 'sudo playit setup' manually to link your account."
   fi
 
   if [[ "$UNATTENDED" -eq 0 ]]; then
