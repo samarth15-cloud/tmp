@@ -1532,22 +1532,6 @@ install_playit() {
   systemctl enable playit >/dev/null 2>&1 || true
   systemctl restart playit >/dev/null 2>&1 || systemctl start playit >/dev/null 2>&1 || true
 
-  section "Playit.gg — Link This Agent"
-  echo "  Playit needs to be linked to your playit.gg account before it can"
-  echo "  create a tunnel. This installer will now watch the agent's log for"
-  echo "  a claim link. When it appears:"
-  echo
-  echo "    1. Open the ${C_CYAN}claim URL${C_RESET} shown below in any browser"
-  echo "       (on your phone, PC — doesn't need to be this machine)"
-  echo "    2. Log in or create a free playit.gg account"
-  echo "    3. On the account setup page, choose ${C_WHITE}\"Your Computer\"${C_RESET} as the"
-  echo "       integration type — this Linux server is treated as a computer"
-  echo "    4. If asked for a claim code directly, enter the code segment"
-  echo "       from the same URL (the part after ${C_GRAY}/claim/${C_RESET})"
-  echo "    5. Approve the agent and select a Minecraft Java tunnel pointing"
-  echo "       at ${C_WHITE}127.0.0.1:25565${C_RESET} (defaults are already correct)"
-  echo
-
   local claim_line=""
   local waited=0
   local max_wait=180
@@ -1577,13 +1561,10 @@ install_playit() {
 
   if [[ -n "$claim_line" ]]; then
     local claim_code="${claim_line##*/}"
-    ui_rule
-    printf '  %sCLAIM URL:%s    %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
+    echo
     printf '  %sCLAIM CODE:%s   %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_YELLOW$C_BOLD" "$claim_code" "$C_RESET"
-    # Print an OSC 8 hyperlink so Termux users can just tap it to open the browser
-    printf '  %sLINK (TAP ME):%s \033]8;;%s\007Link Playit.gg Account\033]8;;\007\n' "$C_WHITE$C_BOLD" "$C_RESET" "$claim_line"
-    ui_rule
-    say_info "Open the URL (or tap the link), enter the claim code if asked, and approve the agent."
+    printf '  %sCLAIM URL:%s    %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
+    echo
   else
     say_warn "Could not automatically detect the claim URL within ${max_wait}s."
     say_warn "Run 'sudo journalctl -u playit -f' manually to find it, or run 'sudo playit setup'."
