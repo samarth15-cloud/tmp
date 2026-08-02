@@ -1528,10 +1528,14 @@ install_playit() {
   echo
 
   if [[ -n "$claim_line" ]]; then
+    local claim_code="${claim_line##*/}"
     ui_rule
-    printf '  %sCLAIM URL:%s %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
+    printf '  %sCLAIM URL:%s    %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
+    printf '  %sCLAIM CODE:%s   %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_YELLOW$C_BOLD" "$claim_code" "$C_RESET"
+    # Print an OSC 8 hyperlink so Termux users can just tap it to open the browser
+    printf '  %sLINK (TAP ME):%s \e]8;;%s\a%s\e]8;;\a\n' "$C_WHITE$C_BOLD" "$C_RESET" "$claim_line" "Link Playit.gg Account"
     ui_rule
-    say_info "Open that URL, select 'Your Computer', and approve the agent."
+    say_info "Open the URL (or tap the link), enter the claim code if asked, and approve the agent."
   else
     say_warn "Could not automatically detect the claim URL within ${max_wait}s."
     say_warn "Run 'sudo journalctl -u playit -f' manually to find it, or run 'sudo playit setup'."
