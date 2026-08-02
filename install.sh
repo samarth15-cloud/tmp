@@ -1640,6 +1640,9 @@ start_server_first_time() {
   systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
   killall -9 java 2>/dev/null || true
 
+  # Clear old logs to prevent false-positive startup confirmation
+  rm -f "$MC_ROOT/logs/latest.log"
+
   systemctl restart "${SERVICE_NAME}.service"
 
   local waited=0 max_wait=90 up=0
