@@ -532,7 +532,7 @@ ask_for_ssh_link() {
       return 0
     else
       say_warn "Couldn't find a valid 'user@host' in that. Try pasting it again."
-      ((attempts++))
+      attempts=$((attempts + 1))
     fi
   done
   say_fail "Too many failed attempts to parse the SSH link. Aborting."
@@ -625,17 +625,21 @@ termux_launcher_flow() {
     ask_for_ssh_link
   fi
 
-  # We need a local copy of this script to pipe over SSH.
-  # When run via `curl | bash`, $0 is "bash" — not a file we can read.
+  # We need a local copy of this script to transfer to the VPS.
+  # When run via `curl | bash`, $0 is "bash" (or /usr/bin/bash) — not our script.
+  # Check that $0 is a real file AND actually contains our script signature,
+  # not just a shell binary that happens to be a readable file.
   local self_script="$0"
   local script_file=""
 
-  if [[ -f "$self_script" && -r "$self_script" ]]; then
-    # Script was run as `bash install.sh` — file exists on disk.
+  if [[ -f "$self_script" && -r "$self_script" ]] \
+     && grep -q 'SCRIPT_VERSION=' "$self_script" 2>/dev/null \
+     && grep -q 'Minecraft Deployment Utility' "$self_script" 2>/dev/null; then
+    # Script was run as `bash install.sh` — real script file on disk.
     script_file="$self_script"
   else
-    # Script was piped in via `curl | bash` — no file on disk.
-    # Download a fresh copy to a temp file so we can pipe it to the VPS.
+    # Script was piped in via `curl | bash` — no usable file on disk.
+    # Download a fresh copy to a temp file so we can SCP it to the VPS.
     say_step "Downloading installer script for VPS transfer"
     script_file="${TMP_ROOT}/install.sh"
     if ! curl -fsSL -H "User-Agent: ${INSTALLER_UA}" \
@@ -653,14 +657,16 @@ termux_launcher_flow() {
   say_info "If this is the first connection, you may be asked to confirm the host key — type 'yes'."
   echo
 
+  # ssh uses -p for port; scp uses -P (capital) for port. Build both.
   local ssh_opts=(-p "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
+  local scp_opts=(-P "$REMOTE_PORT" -o StrictHostKeyChecking=accept-new)
 
   # SCP the script to the VPS first, then SSH in interactively to run it.
   # We can NOT use `ssh ... 'bash -s' < file` because that feeds the script
   # via stdin, which breaks all `read` prompts on the VPS side too.
   local remote_script="/tmp/mc-installer-$$.sh"
 
-  if ! scp "${ssh_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}"; then
+  if ! scp "${scp_opts[@]}" "$script_file" "${REMOTE_USER}@${REMOTE_HOST}:${remote_script}"; then
     say_fail "Could not transfer the installer script to the VPS."
     exit 1
   fi
