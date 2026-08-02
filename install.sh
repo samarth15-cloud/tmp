@@ -1478,16 +1478,18 @@ install_playit() {
   # Check if Playit.gg is already installed and set up
   if command -v playit >/dev/null 2>&1; then
     say_ok "Playit.gg is already installed."
-    # If playit config exists and contains a non-empty secret_key, it is already linked!
-    if [[ -f /etc/playit/playit.toml ]] && grep -qE 'secret_key[[:space:]]*=[[:space:]]*"[a-zA-Z0-9_-]+"' /etc/playit/playit.toml 2>/dev/null; then
-      say_ok "Playit.gg is already active and linked to your account."
-      PLAYIT_INSTALLED=1
-      return
-    fi
-    # If installed but not linked, we skip the install but proceed
-    # to the activation/claiming step.
-    say_info "Playit.gg is installed but needs to be linked/claimed."
     INSTALL_PLAYIT_SKIP_PACKAGE=1
+
+    if [[ -f /etc/playit/playit.toml ]]; then
+      if confirm "Playit.gg configuration already exists. Reset it to link a new account?"; then
+        say_info "Resetting Playit.gg configuration..."
+        rm -f /etc/playit/playit.toml 2>/dev/null || true
+      elif grep -qE 'secret_key[[:space:]]*=[[:space:]]*"[a-zA-Z0-9_-]+"' /etc/playit/playit.toml 2>/dev/null; then
+        say_ok "Playit.gg is already active and linked to your account."
+        PLAYIT_INSTALLED=1
+        return
+      fi
+    fi
   else
     INSTALL_PLAYIT_SKIP_PACKAGE=0
   fi
@@ -1567,7 +1569,7 @@ install_playit() {
     printf '  %sCLAIM URL:%s    %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
     printf '  %sCLAIM CODE:%s   %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_YELLOW$C_BOLD" "$claim_code" "$C_RESET"
     # Print an OSC 8 hyperlink so Termux users can just tap it to open the browser
-    printf '  %sLINK (TAP ME):%s \e]8;;%s\a%s\e]8;;\a\n' "$C_WHITE$C_BOLD" "$C_RESET" "$claim_line" "Link Playit.gg Account"
+    printf '  %sLINK (TAP ME):%s \033]8;;%s\007Link Playit.gg Account\033]8;;\007\n' "$C_WHITE$C_BOLD" "$C_RESET" "$claim_line"
     ui_rule
     say_info "Open the URL (or tap the link), enter the claim code if asked, and approve the agent."
   else
