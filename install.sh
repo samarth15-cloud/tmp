@@ -1547,7 +1547,7 @@ install_playit() {
     # Run the setup tool directly in the user's terminal session.
     # It automatically handles generating the claim URL, displaying it,
     # waiting for web approval, and saving the secret key!
-    playit-cli setup < /dev/tty || true
+    playit setup < /dev/tty || true
   else
     say_ok "Playit.gg is already active and linked to your account."
   fi
