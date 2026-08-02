@@ -1475,6 +1475,28 @@ install_playit() {
   CURRENT_STEP="install Playit.gg"
   section "Playit.gg Tunnel"
 
+  # Check if Playit.gg is already installed and set up
+  if command -v playit >/dev/null 2>&1; then
+    say_ok "Playit.gg is already installed."
+    if systemctl is-active --quiet playit 2>/dev/null; then
+      # If active, check if there's any active claim URL in the logs.
+      # If no claim URL exists, it is already linked to an account and active!
+      local logs_claim
+      logs_claim="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
+      if [[ -z "$logs_claim" ]]; then
+        say_ok "Playit.gg is already active and linked to your account."
+        PLAYIT_INSTALLED=1
+        return
+      fi
+    fi
+    # If installed but not active or not claimed, we skip the install but proceed
+    # to the activation/claiming step.
+    say_info "Playit.gg is installed but needs activation/linking."
+    INSTALL_PLAYIT_SKIP_PACKAGE=1
+  else
+    INSTALL_PLAYIT_SKIP_PACKAGE=0
+  fi
+
   local do_install="$INSTALL_PLAYIT"
   if [[ -z "$do_install" ]]; then
     if confirm "Install Playit.gg to expose your server to the internet without port forwarding?"; then
@@ -1489,16 +1511,18 @@ install_playit() {
     return
   fi
 
-  spinner_run "Adding Playit.gg apt repository" bash -c '
-    curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/playit.gpg
-    echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" > /etc/apt/sources.list.d/playit-cloud.list
-    apt-get update -y
-  '
+  if [[ "${INSTALL_PLAYIT_SKIP_PACKAGE:-0}" -eq 0 ]]; then
+    spinner_run "Adding Playit.gg apt repository" bash -c '
+      curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor -o /etc/apt/trusted.gpg.d/playit.gpg
+      echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" > /etc/apt/sources.list.d/playit-cloud.list
+      apt-get update -y
+    '
 
-  spinner_run "Installing playit package" apt-get install -y \
-    -o Dpkg::Options::="--force-confdef" \
-    -o Dpkg::Options::="--force-confold" \
-    playit
+    spinner_run "Installing playit package" apt-get install -y \
+      -o Dpkg::Options::="--force-confdef" \
+      -o Dpkg::Options::="--force-confold" \
+      playit
+  fi
 
   systemctl enable playit >/dev/null 2>&1 || true
   systemctl restart playit >/dev/null 2>&1 || systemctl start playit >/dev/null 2>&1 || true
