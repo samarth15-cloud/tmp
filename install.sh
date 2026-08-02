@@ -1515,7 +1515,15 @@ install_playit() {
     spinner_run "Adding Playit.gg apt repository" bash -c '
       curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --batch --yes --dearmor -o /etc/apt/trusted.gpg.d/playit.gpg
       echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" > /etc/apt/sources.list.d/playit-cloud.list
-      apt-get update -y
+      # Only update the playit repository to avoid hanging on slow/dead system repositories.
+      # Also set a tight 3-second timeout.
+      apt-get update -y \
+        -o Dir::Etc::sourcelist="sources.list.d/playit-cloud.list" \
+        -o Dir::Etc::sourceparts="-" \
+        -o APT::Get::List-Cleanup="0" \
+        -o Acquire::http::Timeout="3" \
+        -o Acquire::https::Timeout="3" \
+        -o Acquire::Retries="1"
     '
 
     spinner_run "Installing playit package" apt-get install -y \
