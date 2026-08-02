@@ -24,6 +24,7 @@ LOG_DIR=""
 LOG_FILE=""
 LOCK_FILE=""
 TMP_ROOT=""
+OLD_TTY_SETTINGS=""
 
 LOG_TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 readonly LOG_TIMESTAMP
@@ -143,7 +144,7 @@ spinner_run() {
   if [[ -t 1 ]]; then
     while kill -0 "$pid" 2>/dev/null; do
       i=$(( (i+1) % ${#frames} ))
-      printf '\r  %s%s%s %s' "$C_CYAN" "${frames:$i:1}" "$C_RESET" "$msg"
+      printf '\r  %swaiting...%s (%ds)' "$C_GRAY" "$C_RESET" "$waited"
       sleep 0.1
     done
   fi
@@ -199,6 +200,10 @@ on_error() {
 cleanup_tmp() {
   [[ -d "${TMP_ROOT:-}" ]] && rm -rf "$TMP_ROOT" 2>/dev/null || true
   [[ -f "${LOCK_FILE:-}" ]] && rm -f "$LOCK_FILE" 2>/dev/null || true
+  if [[ -n "${OLD_TTY_SETTINGS:-}" ]]; then
+    stty "$OLD_TTY_SETTINGS" 2>/dev/null || true
+    OLD_TTY_SETTINGS=""
+  fi
 }
 
 on_exit() {
@@ -674,14 +679,33 @@ termux_launcher_flow() {
   # that tells the VPS to download and run the script directly from GitHub,
   # followed by `cat < /dev/tty` to pipe the user's terminal keyboard input
   # so they can interact with the script prompts.
+  # Save original TTY settings and enable raw mode.
+  # This makes 'cat < /dev/tty' forward keypresses (like 'q' or arrow keys)
+  # character-by-character immediately to the remote PTY instead of buffering
+  # line-by-line in cooked mode, and lets Ctrl+C pass to the remote host.
+  OLD_TTY_SETTINGS="$(stty -g 2>/dev/null || echo "")"
+  if [[ -n "$OLD_TTY_SETTINGS" ]]; then
+    stty raw -echo 2>/dev/null
+  fi
+
   if ! {
     sleep 2
     echo "curl -fsSL ${INSTALLER_SCRIPT_URL} | bash"
     cat < /dev/tty
   } | ssh -tt "${ssh_opts[@]}" "${REMOTE_USER}@${REMOTE_HOST}"; then
+    if [[ -n "$OLD_TTY_SETTINGS" ]]; then
+      stty "$OLD_TTY_SETTINGS" 2>/dev/null || true
+      OLD_TTY_SETTINGS=""
+    fi
     say_fail "Remote session ended with an error, or the connection dropped."
     say_info "You can retry by running this installer again."
     exit 1
+  fi
+
+  # Restore terminal settings
+  if [[ -n "$OLD_TTY_SETTINGS" ]]; then
+    stty "$OLD_TTY_SETTINGS" 2>/dev/null || true
+    OLD_TTY_SETTINGS=""
   fi
 
   say_ok "Remote session finished."
