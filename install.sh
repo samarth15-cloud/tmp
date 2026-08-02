@@ -1411,11 +1411,11 @@ install_shell_experience() {
 
   spinner_run "Installing zsh-autosuggestions" git clone --depth=1 \
     https://github.com/zsh-users/zsh-autosuggestions \
-    "${HOME}/.zsh-autosuggestions" 2>/dev/null || true
+    "${target_home}/.zsh-autosuggestions" 2>/dev/null || true
 
   spinner_run "Installing zsh-syntax-highlighting" git clone --depth=1 \
     https://github.com/zsh-users/zsh-syntax-highlighting \
-    "${HOME}/.zsh-syntax-highlighting" 2>/dev/null || true
+    "${target_home}/.zsh-syntax-highlighting" 2>/dev/null || true
 
   local target_user="${SUDO_USER:-root}"
   local target_home
@@ -1429,8 +1429,8 @@ install_shell_experience() {
     {
       echo ''
       echo '# --- Minecraft Deployment Utility: shell setup ---'
-      echo '[[ -f ~/.zsh-autosuggestions/zsh-autosuggestions.zsh ]] && source ~/.zsh-autosuggestions/zsh-autosuggestions.zsh'
-      echo '[[ -f ~/.zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && source ~/.zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
+      echo '[ -f ~/.zsh-autosuggestions/zsh-autosuggestions.zsh ] && source ~/.zsh-autosuggestions/zsh-autosuggestions.zsh'
+      echo '[ -f ~/.zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] && source ~/.zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
       echo 'eval "$(starship init zsh)"'
       echo 'alias ll="ls -lah"'
     } >> "$zshrc"
@@ -1478,20 +1478,15 @@ install_playit() {
   # Check if Playit.gg is already installed and set up
   if command -v playit >/dev/null 2>&1; then
     say_ok "Playit.gg is already installed."
-    if systemctl is-active --quiet playit 2>/dev/null; then
-      # If active, check if there's any active claim URL in the logs.
-      # If no claim URL exists, it is already linked to an account and active!
-      local logs_claim
-      logs_claim="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
-      if [[ -z "$logs_claim" ]]; then
-        say_ok "Playit.gg is already active and linked to your account."
-        PLAYIT_INSTALLED=1
-        return
-      fi
+    # If playit config exists and contains a non-empty secret_key, it is already linked!
+    if [[ -f /etc/playit/playit.toml ]] && grep -qE 'secret_key[[:space:]]*=[[:space:]]*"[a-zA-Z0-9_-]+"' /etc/playit/playit.toml 2>/dev/null; then
+      say_ok "Playit.gg is already active and linked to your account."
+      PLAYIT_INSTALLED=1
+      return
     fi
-    # If installed but not active or not claimed, we skip the install but proceed
+    # If installed but not linked, we skip the install but proceed
     # to the activation/claiming step.
-    say_info "Playit.gg is installed but needs activation/linking."
+    say_info "Playit.gg is installed but needs to be linked/claimed."
     INSTALL_PLAYIT_SKIP_PACKAGE=1
   else
     INSTALL_PLAYIT_SKIP_PACKAGE=0
@@ -1663,6 +1658,10 @@ load_state() {
 start_server_first_time() {
   CURRENT_STEP="start Minecraft server"
   section "Starting Server"
+
+  # Stop the service and kill any stray java processes to free up port 25565
+  systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+  killall -9 java 2>/dev/null || true
 
   systemctl restart "${SERVICE_NAME}.service"
 
