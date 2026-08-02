@@ -1532,58 +1532,24 @@ install_playit() {
   fi
 
   # Kill any manual background playit processes to prevent resource locks
-  killall -9 playit 2>/dev/null || true
+  killall -9 playit playit-cli 2>/dev/null || true
 
   systemctl enable playit >/dev/null 2>&1 || true
   systemctl restart playit >/dev/null 2>&1 || systemctl start playit >/dev/null 2>&1 || true
 
-  local claim_line=""
-  local waited=0
-  local max_wait=180
-  say_step "Waiting for claim URL from the playit agent..."
-  while (( waited < max_wait )); do
-    # 1. Check journalctl
-    claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https://playit\.gg/claim/[A-Za-z0-9_-]+' | tail -1 || true)"
-    if [[ -z "$claim_line" ]]; then
-      claim_line="$(journalctl -u playit -n 50 --no-pager 2>/dev/null | grep -Eo 'https?://(www\.)?playit\.gg/(claim|link)/[A-Za-z0-9_-]+' | tail -1 || true)"
-    fi
-    
-    # 2. Check systemctl status status lines as a fallback (some containers disable journald)
-    if [[ -z "$claim_line" ]]; then
-      claim_line="$(systemctl status playit --no-pager 2>/dev/null | grep -Eo 'https?://(www\.)?playit\.gg/(claim|link)/[A-Za-z0-9_-]+' | tail -1 || true)"
-    fi
-
-    # 3. Check syslog as a fallback
-    if [[ -z "$claim_line" ]]; then
-      claim_line="$(grep -Eo 'https?://(www\.)?playit\.gg/(claim|link)/[A-Za-z0-9_-]+' /var/log/syslog 2>/dev/null | tail -1 || true)"
-    fi
-
-    if [[ -n "$claim_line" ]]; then
-      break
-    fi
-    sleep 2
-    waited=$(( waited + 2 ))
-    printf '\r  %swaiting...%s (%ds)' "$C_GRAY" "$C_RESET" "$waited"
-  done
-  echo
-
-  if [[ -n "$claim_line" ]]; then
-    local claim_code="${claim_line##*/}"
+  # Check if we need to link/claim the agent (if there is no secret key in the file)
+  if ! grep -qE 'secret_key[[:space:]]*=[[:space:]]*"[a-zA-Z0-9_-]+"' /etc/playit/playit.toml 2>/dev/null; then
+    section "Link Playit.gg Agent"
+    say_info "Launching the official Playit.gg setup wizard."
+    say_info "Please follow the URL printed below to claim your agent."
     echo
-    printf '  %sCLAIM CODE:%s   %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_YELLOW$C_BOLD" "$claim_code" "$C_RESET"
-    printf '  %sCLAIM URL:%s    %s%s%s\n' "$C_WHITE$C_BOLD" "$C_RESET" "$C_CYAN$C_BOLD" "$claim_line" "$C_RESET"
-    echo
+
+    # Run the setup tool directly in the user's terminal session.
+    # It automatically handles generating the claim URL, displaying it,
+    # waiting for web approval, and saving the secret key!
+    playit-cli setup < /dev/tty || true
   else
-    say_warn "Could not automatically detect the claim URL within ${max_wait}s."
-    say_warn "Here are the last 20 lines of the playit service logs for troubleshooting:"
-    echo "----------------------------------------------------------------------"
-    journalctl -u playit -n 20 --no-pager 2>/dev/null || systemctl status playit --no-pager 2>/dev/null || true
-    echo "----------------------------------------------------------------------"
-    say_warn "You can run 'sudo playit setup' manually to link your account."
-  fi
-
-  if [[ "$UNATTENDED" -eq 0 ]]; then
-    read -r -p "  Press Enter once you've approved the agent in your browser (or skip)... " < /dev/tty || true
+    say_ok "Playit.gg is already active and linked to your account."
   fi
 
   say_ok "Playit.gg agent installed and running as a systemd service"
